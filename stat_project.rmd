@@ -1,0 +1,149 @@
+---
+title: "Statistics Project"
+output: 
+  html_document: 
+    fig_height: 4
+    highlight: pygments
+    theme: spacelab
+---
+
+
+## Introduction
+
+The General Social Survey has been studying the American society since 1972, to examine the structure of society and explain trends in the behavior of people. Respondents of the survey are randomly selected people of age 18 years and older living in households in the United States. In each year's survey there are a couple thousand respondents. The same respondent was likely not interviewed in multiple surveys, so we can assume that all observations are independent.
+More information about the survey can be read on their homepage https://gss.norc.org/. 
+
+The data that we will use is an extract of the entire GSS data set, containing only a subset of the variables and only the years between 2000 and 2018. We would like to examine connections between some of the variables using statistical inference. (It is reasonable to assume that the conditions necessary for performing the tests are satisfied.)
+
+The Excel file containing the extract was downloaded from the GSS Data Explorer website: https://gssdataexplorer.norc.org/
+(The downloaded file was slightly modified before working with it in this project - we renamed the columns and deleted unnecessary worksheets.)
+
+Let's load the necessary libraries, read the Excel file and take a look at the variables.
+
+```{r load-packages, message = FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(readxl)
+
+gss <- read_excel("GSS.xls")
+glimpse(gss)
+
+```
+
+
+## Question 1
+
+The first question we would like to examine is the connection between women's level of education and their number of children. Specifically, we will compare female respondents that have Bachelor degrees with female respondents that only have high school degrees, in regards to their number of children. 
+
+So let's extract the relevant data and visualize it.
+
+
+```{r}
+df <- gss %>% select(sex, degree, children) %>%
+  mutate(children=replace(children,children=="Eight or more",8)) %>%
+  filter(children!="Dk na", sex=="Female", 
+         (degree=="High school"| degree=="Bachelor"))
+df$children <- as.numeric(df$children)
+
+ggplot(df, aes(x=degree, y=children)) + geom_boxplot()
+```
+
+These box plots give us information about the distribution of the number of children for the two groups of women. As we can see, the median number of children is lower for women with Bachelor degrees. Let's calculate the summary statistics:
+
+```{r}
+df %>%
+  group_by(degree) %>%
+  summarise(mean=mean(children), med=median(children), sd=sd(children), 
+            min=min(children), max=max(children))
+```
+
+According to these statistics, the mean number of children is higher for high school graduates among the respondents of the survey. From this, we want to infer that US women with Bachelor degrees on average have less children than US women with high school degrees. So the question is whether the difference between the sample means is statistically significant or not.
+
+To answer the above question, we will conduct a hypothesis test. Let's state our null and alternative hypotheses:
+
+$H_0: \mu_{b} = \mu_{h}$; \ \ $H_A: \mu_{b} < \mu_{h}$
+
+The null hypothesis states that the average number of children in the population is the same for the two groups; the alternative hypothesis is that women with high school degrees have more children on average.
+
+```{r}
+inference(y = children, x = degree, data = df, statistic = "mean", type = "ht", 
+          null = 0, alternative = "less", method = "theoretical")
+```
+
+We used the inference function in the statsr library to perform the hypothesis test. Since the resulting p-value is much less than the significance level 0.05, we can confidently reject the null hypothesis. The test yielded the result that we expected: the difference that we observed between the mean number of children in the two groups is in fact statistically significant.
+
+Let's calculate the 95% confidence interval and compare with this result:
+
+```{r}
+inference(y = children, x = degree, data = df, statistic = "mean", type = "ci", 
+          method = "theoretical")
+```
+
+The confidence interval is (-0.5986,-0.47). This does not include 0 (the null value for the hypothesis test), so the confidence interval agrees with the result of the hypothesis test. This also means that we can say with 95% confidence that US women with high school degrees on average have 0.47 to 0.5986 more children than US women with Bachelor degrees.
+
+
+## Question 2
+
+In the second question, we are interested in whether there is a relationship between political views and marital status. First we are going to create a new data frame containing only the relevant information. We are simplifying the data a bit by grouping political views into three categories (conservative, liberal, moderate), and marital status as well (married, never married, divorced/separated).
+
+
+```{r}
+df2 <- gss %>% select(politics, marital) %>% 
+  filter(!(marital %in% c("No answer","Widowed")) &
+         !(politics %in% c("No answer","Don't know","Not applicable"))) %>%
+  mutate(politics=recode(politics,"Slghtly conservative"="Conservative",
+                         "Extrmly conservative"="Conservative",
+                         "Slightly liberal"="Liberal",
+                         "Extremely liberal"="Liberal")) %>%
+  mutate(marital=recode(marital,"Divorced"="Divorced/Separated",
+                        "Separated"="Divorced/Separated"))
+  
+```
+
+Let's create a contingency table and visualize the data on a bar plot.
+
+```{r}
+tbl <- table(df2$politics, df2$marital)
+tbl
+ggplot(df2, aes(x=politics, fill=marital)) + geom_bar()
+```
+
+Our null hypothesis is that political view is independent from marital status. By looking at the above bar plot, we might guess that this is not true (for example, the percentage of married people seems significantly higher in the conservative group than in the liberal). Let's perform a chi-square independence test to confirm.
+
+
+```{r}
+chisq.test(tbl)
+```
+
+Since the p-value is much smaller than the significance level 0.05, we can reject the null hypothesis. Political view and marital status are NOT independent from each other.
+
+
+## Question 3
+
+In our last question, we want to examine whether there has been a significant change in the proportion of unemployed people between the first and last years of the data (2000 and 2018). Again we start with extracting the relevant data and making some changes in the column values for simplicity. 
+
+```{r}
+df3 <- gss %>% select(year, labor) %>% 
+  filter(labor!="No answer", (year==2000 | year==2018)) %>%
+  mutate(labor=recode(labor,"Unempl, laid off"="Unemployed",
+                      "Temp not working"="Unemployed")) %>%
+  mutate(labor=replace(labor,labor!="Unemployed","Employed/Other"))
+
+t <- table(df3$year,factor(df3$labor, levels=c("Unemployed","Employed/Other")))
+t
+```
+From this table it seems like there is a greater proportion of unemployed people in 2018 than in 2000. Let's test if this difference is significant or not.
+
+
+```{r}
+prop.test(t)
+```
+
+The p-value that we got from the proportion test is less than 0.05, therefore the difference in unemployment rate is significant at the 95% confidence level.
+
+
+
+
+
+
